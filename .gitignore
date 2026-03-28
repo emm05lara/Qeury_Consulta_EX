@@ -1,0 +1,47 @@
+# ── Python ──────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ── Virtual Environments ─────────────────────────────
+venv/
+.venv/
+env/
+ENV/
+.env
+
+# ── Streamlit ────────────────────────────────────────
+.streamlit/secrets.toml
+
+# ── Datos ────────────────────────────────────────────
+# Archivos de datos sueltos en la raíz (ej. archivos de prueba temporales)
+/*.csv
+/*.xlsx
+/*.xls
+
+# NOTA: La carpeta data/ SÍ se incluye en Git para que Render
+# pueda acceder al archivo precargado (data/baseConsulta.xlsx).
+# Si los datos son muy sensibles, usa Render Disk o una fuente externa.
+
+# ── IDEs y editores ──────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ── Logs ─────────────────────────────────────────────
+*.log
+logs/
+
+# ── Pytest ───────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/

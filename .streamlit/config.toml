@@ -1,0 +1,45 @@
+# .streamlit/config.toml
+#
+# PROPÓSITO: Forzar una identidad visual consistente y configuración de servidor.
+#
+# TEMA FORZADO:
+#   Streamlit aplica este tema ANTES de que el usuario pueda cambiarlo.
+#   Sin embargo, Streamlit no puede impedir 100% que el usuario use el selector
+#   de tema en versiones recientes (Settings → Theme). Lo que sí podemos hacer:
+#   1. Forzar "Dark" como base para que la paleta CSS personalizada tenga sentido.
+#   2. Sobreescribir los colores de acento para que el CSS custom encaje.
+#   3. La mayor parte del control visual lo ejerce el CSS inyectado en app.py.
+#
+# NOTA PARA EL DESARROLLADOR:
+#   Si Streamlit muestra un selector de tema al usuario, ese selector puede
+#   cambiar los widgets nativos (selectbox, text_input, etc.) pero NO puede
+#   cambiar los bloques HTML/CSS inyectados con st.markdown(unsafe_allow_html=True).
+#   Por eso, el diseño usa components HTML personalizados para las tarjetas,
+#   encabezados y filas de datos, manteniéndolos siempre en la paleta correcta.
+
+[global]
+developmentMode = false
+
+[server]
+headless = true
+enableCORS = false
+port = 8501
+
+[browser]
+gatherUsageStats = false
+
+[client]
+showErrorDetails = false
+# "minimal" oculta la barra de herramientas de Streamlit para una UI más limpia.
+toolbarMode = "minimal"
+
+# ── TEMA FORZADO ────────────────────────────────────────────────────────────
+# Usa "dark" como base para que los colores personalizados del CSS encajen bien.
+# Los colores aquí afectan principalmente a widgets nativos de Streamlit.
+[theme]
+base            = "dark"
+primaryColor    = "#2563eb"          # Azul ejecutivo (acento principal)
+backgroundColor = "#0d1117"          # Fondo oscuro general
+secondaryBackgroundColor = "#161b22" # Fondo de sidebar y tarjetas
+textColor       = "#e6edf3"          # Texto principal claro
+font            = "sans serif"
