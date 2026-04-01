@@ -55,7 +55,7 @@ def formatearFecha(valor) -> str:
         if valorStr == "" or valorStr.lower() in ("nan", "none", "null", "nat"):
             return TEXTO_SIN_DATO
 
-        fechaParseada = pd.to_datetime(valorStr, dayfirst=False, infer_datetime_format=True)
+        fechaParseada = pd.to_datetime(valorStr, dayfirst=True, infer_datetime_format=True)
         return fechaParseada.strftime("%d/%m/%Y")
     except Exception:
         # Si no se puede parsear, devolver el valor original como string
