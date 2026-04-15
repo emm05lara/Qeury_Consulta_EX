@@ -39,6 +39,7 @@ from utils.carga import (
     obtenerNombreArchivoRepo,
     validarColumnas,
     buscarCliente,
+    buscarOtrosVReference,
 )
 from utils.formato import (
     formatearMoneda,
@@ -448,6 +449,123 @@ st.markdown(
     ::-webkit-scrollbar-track { background: var(--color-bg); }
     ::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 3px; }
     ::-webkit-scrollbar-thumb:hover { background: var(--color-muted); }
+
+    /* ── Sección: Otros VReference del Cliente ── */
+    .otras-vref-section {
+        background: var(--color-surface);
+        border: 1px solid var(--color-border);
+        border-radius: 12px;
+        padding: 0;
+        margin-top: 24px;
+        overflow: hidden;
+    }
+    .otras-vref-header {
+        background: linear-gradient(90deg, #1a2744 0%, #21262d 100%);
+        border-bottom: 1px solid var(--color-border);
+        padding: 14px 20px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+    }
+    .otras-vref-title {
+        font-size: 0.72rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        color: var(--color-muted);
+    }
+    .otras-vref-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        background: #1a2d50;
+        border: 1px solid #2563eb;
+        border-radius: 20px;
+        padding: 3px 10px;
+        font-size: 0.72rem;
+        font-weight: 600;
+        color: #58a6ff;
+    }
+    .otras-vref-body {
+        padding: 16px 20px;
+    }
+    .otras-vref-meta {
+        display: flex;
+        gap: 24px;
+        margin-bottom: 16px;
+        flex-wrap: wrap;
+    }
+    .otras-vref-meta-item {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+    .otras-vref-meta-label {
+        font-size: 0.68rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--color-muted);
+    }
+    .otras-vref-meta-value {
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: #79c0ff;
+    }
+    .vref-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.8rem;
+    }
+    .vref-table th {
+        background: #0d1117;
+        color: var(--color-muted);
+        font-size: 0.68rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        padding: 8px 10px;
+        text-align: left;
+        border-bottom: 1px solid var(--color-border);
+    }
+    .vref-table td {
+        padding: 8px 10px;
+        border-bottom: 1px solid #21262d;
+        color: var(--color-text);
+        vertical-align: middle;
+    }
+    .vref-table tr:last-child td {
+        border-bottom: none;
+    }
+    .vref-table tr:hover td {
+        background: #1c2333;
+    }
+    .vref-table td.vref-code {
+        font-weight: 700;
+        color: #79c0ff;
+        font-family: 'Courier New', monospace;
+        letter-spacing: 0.5px;
+    }
+    .vref-table td.moneda-tabla {
+        color: #79c0ff;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+    }
+    .vref-table td.estatus {
+        color: #3fb950;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+    .sin-otros-vref {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 0;
+        font-size: 0.83rem;
+        color: var(--color-muted);
+        font-style: italic;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -619,7 +737,12 @@ def renderizarResultado(fila: pd.Series):
         # ── Tarjeta: Pago del Mes ──
         def contenidoPago():
             renderizarFila(
-                "Pago Recibido / Aplicado",
+                "Pago Domiciliado",
+                formatearMoneda(obtenerValorColumna(fila, "Pago domi")),
+                "moneda",
+            )
+            renderizarFila(
+                "Pago en Efectivo",
                 formatearMoneda(obtenerValorColumna(fila, "Pago cash")),
                 "moneda",
             )
@@ -650,6 +773,7 @@ def renderizarResultado(fila: pd.Series):
         renderizarTarjeta("Historial de Pagos", "🗓️", contenidoHistorial)
 
         # ── Tarjeta: Saldos ──
+        # Saldo Vencido → columna real: nDueBalance_x
         def contenidoSaldos():
             renderizarFila(
                 "Saldo Total",
@@ -686,6 +810,123 @@ def renderizarResultado(fila: pd.Series):
             )
 
         renderizarTarjeta("Información del Crédito", "📄", contenidoCredito)
+
+
+def renderizarOtrosVReference(fila: pd.Series, dfCompleto: pd.DataFrame):
+    """
+    Renderiza la sección 'Otros VReference del Cliente'.
+
+    Lógica:
+    - Toma iPersonId_x del registro actual.
+    - Busca en el dataset completo todos los vReference del mismo cliente.
+    - Excluye el vReference actual de la lista de 'otros'.
+    - Muestra tabla con: vReference, iCredId, nAmount, nTotBalance,
+      nDueBalance_x (Saldo Vencido), vEstatCred_x.
+
+    Args:
+        fila:       pd.Series del registro actualmente visualizado.
+        dfCompleto: DataFrame completo para la búsqueda.
+    """
+    vRefActual  = str(obtenerValorColumna(fila, "vReference") or "").strip()
+    iPersonId   = str(obtenerValorColumna(fila, "iPersonId_x") or "").strip()
+
+    # Contar total de préstamos del cliente (incluyendo el actual)
+    if iPersonId and iPersonId.lower() not in ("nan", "none", ""):
+        mascTotal = dfCompleto["iPersonId_x"].astype(str).str.strip() == iPersonId
+        totalPrestamos = dfCompleto[mascTotal]["vReference"].nunique()
+    else:
+        totalPrestamos = 1
+
+    # Obtener otros VReference
+    otros = buscarOtrosVReference(dfCompleto, iPersonId, vRefActual)
+
+    # ── Encabezado de la sección ──
+    st.markdown(
+        f"""
+        <div class="otras-vref-section">
+            <div class="otras-vref-header">
+                <div style="display:flex;align-items:center;gap:10px">
+                    <span style="font-size:1rem">🔗</span>
+                    <span class="otras-vref-title">Otros VReference del Cliente</span>
+                </div>
+                <div class="otras-vref-badge">
+                    🗂️ {totalPrestamos} préstamo{'s' if totalPrestamos != 1 else ''} totales
+                </div>
+            </div>
+            <div class="otras-vref-body">
+                <div class="otras-vref-meta">
+                    <div class="otras-vref-meta-item">
+                        <span class="otras-vref-meta-label">ID Cliente (iPersonId_x)</span>
+                        <span class="otras-vref-meta-value">{iPersonId if iPersonId and iPersonId.lower() not in ('nan','none','') else '—'}</span>
+                    </div>
+                    <div class="otras-vref-meta-item">
+                        <span class="otras-vref-meta-label">Préstamo Actual</span>
+                        <span class="otras-vref-meta-value">{vRefActual if vRefActual else '—'}</span>
+                    </div>
+                    <div class="otras-vref-meta-item">
+                        <span class="otras-vref-meta-label">Otros Préstamos Encontrados</span>
+                        <span class="otras-vref-meta-value">{len(otros)}</span>
+                    </div>
+                </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if otros.empty:
+        # Caso: cliente con un solo préstamo
+        st.markdown(
+            '<div class="sin-otros-vref">'
+            '✅ Este cliente no tiene otros VReference asociados.'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        # Construir filas HTML de la tabla
+        filas_html = ""
+        for _, row in otros.iterrows():
+            _v  = formatearTexto(obtenerValorColumna(row, "vReference"))
+            _c  = formatearTexto(obtenerValorColumna(row, "iCredId"))
+            _am = formatearMoneda(obtenerValorColumna(row, "nAmount"))
+            _tb = formatearMoneda(obtenerValorColumna(row, "nTotBalance"))
+            _db = formatearMoneda(obtenerValorColumna(row, "nDueBalance_x"))
+            # Intentar vEstatCred_x primero, luego vEstatCred_y
+            _es = formatearTexto(obtenerValorColumna(row, "vEstatCred_x"))
+            if _es == TEXTO_SIN_DATO:
+                _es = formatearTexto(obtenerValorColumna(row, "vEstatCred_y"))
+
+            filas_html += f"""
+            <tr>
+                <td class="vref-code">{_v}</td>
+                <td>{_c}</td>
+                <td class="moneda-tabla">{_am}</td>
+                <td class="moneda-tabla">{_tb}</td>
+                <td class="moneda-tabla">{_db}</td>
+                <td class="estatus">{_es}</td>
+            </tr>"""
+
+        st.markdown(
+            f"""
+            <table class="vref-table">
+                <thead>
+                    <tr>
+                        <th>VReference</th>
+                        <th>ID Crédito</th>
+                        <th>Monto Otorgado</th>
+                        <th>Saldo Total</th>
+                        <th>Saldo Vencido</th>
+                        <th>Estatus</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {filas_html}
+                </tbody>
+            </table>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    # Cerrar divs de la sección
+    st.markdown("</div></div>", unsafe_allow_html=True)
 
 
 # ─────────────────────────────────────────────
@@ -850,7 +1091,7 @@ with st.sidebar:
     # ── Footer de versión ──
     st.markdown(
         '<div style="position:fixed;bottom:20px;font-size:0.68rem;color:#484f58">'
-        "v1.1.0 · Dashboard Ejecutivo</div>",
+        "v1.2.0 · Dashboard Ejecutivo</div>",
         unsafe_allow_html=True,
     )
 
@@ -974,6 +1215,9 @@ if valorBusqueda and valorBusqueda.strip():
 
         filaCliente = resultados.iloc[0]
         renderizarResultado(filaCliente)
+
+        # ── Sección: Otros VReference del mismo cliente ──
+        renderizarOtrosVReference(filaCliente, df)
 
 else:
     # Estado inicial sin búsqueda

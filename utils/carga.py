@@ -36,15 +36,17 @@ HOJA_EXCEL_DEFECTO = 0   # 0 = primera hoja (índice); cambia a nombre si lo pre
 # Se buscan por nombre de encabezado, no por posición.
 COLUMNAS_REQUERIDAS = [
     "vReference",
+    "iPersonId_x",   # Llave única del cliente — usada para agrupar préstamos
     "vName",
     "Bucket Inicio",
     "nDescuento",
     "Amortizacion",
-    "nDueBalance_x",
+    "nDueBalance_x",  # Saldo Vencido
     "Minimo para contener",
     "Monto Liquidacion",
     "Gestor",
-    "Pago cash",
+    "Pago domi",      # Pago Domiciliado
+    "Pago cash",      # Pago en Efectivo
     "F.Aplicacion",
     "vUltPago",
     "nTotBalance",
@@ -203,3 +205,41 @@ def buscarCliente(df: pd.DataFrame, valorVReference: str) -> pd.DataFrame:
     mascara = df["vReference"].astype(str).str.strip().str.lower() == valorNormalizado.lower()
     resultados = df[mascara].copy()
     return resultados
+
+
+def buscarOtrosVReference(df: pd.DataFrame, iPersonId: str, vReferenceActual: str) -> pd.DataFrame:
+    """
+    Dado un iPersonId_x, devuelve todos los registros del mismo cliente
+    excluyendo el vReference actual.
+
+    Columna clave del cliente: iPersonId_x
+    Identificador de préstamo:  vReference
+
+    Args:
+        df:               DataFrame completo cargado.
+        iPersonId:        Valor de iPersonId_x del registro actual.
+        vReferenceActual: vReference del registro que se está viendo (se excluye).
+
+    Returns:
+        DataFrame con los demás préstamos del cliente.
+        Puede estar vacío si el cliente solo tiene un préstamo.
+    """
+    if "iPersonId_x" not in df.columns or "vReference" not in df.columns:
+        return pd.DataFrame()
+
+    personIdNorm = str(iPersonId).strip()
+    vRefNorm = str(vReferenceActual).strip().lower()
+
+    # Filtrar por mismo cliente
+    mascCliente = df["iPersonId_x"].astype(str).str.strip() == personIdNorm
+    todosDelCliente = df[mascCliente].copy()
+
+    # Excluir el vReference actual
+    mascExcluir = todosDelCliente["vReference"].astype(str).str.strip().str.lower() != vRefNorm
+    otros = todosDelCliente[mascExcluir].copy()
+
+    # Eliminar duplicados de vReference
+    if not otros.empty:
+        otros = otros.drop_duplicates(subset=["vReference"])
+
+    return otros
