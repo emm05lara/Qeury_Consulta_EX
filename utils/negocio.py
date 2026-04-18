@@ -198,15 +198,11 @@ def getSemaforo(fila: pd.Series) -> dict:
     """
     Calcula el estado del semáforo de riesgo del crédito.
 
-    Prioridad (implementada en este orden para evitar conflictos):
-      1. Bucket A/B/C/D → VERDE  ("Aplica convenio")
-      2. nPaid >= 50% de nTAmount Y no es A/B/C/D → AMARILLO ("Revisar status Convenio")
-      3. Bucket E en adelante Y no cumple amarillo → ROJO ("Sin Convenio")
-      4. Si bucket desconocido y no aplica amarillo → ROJO por defecto
-
-    La prioridad VERDE sobre AMARILLO es intencional por coherencia de negocio:
-    si el cliente está en bucket bajo (A-D), siempre se le ofrece convenio
-    independientemente de cuánto haya pagado ya.
+    NUEVAS REGLAS DE NEGOCIO (Prioridad estricta):
+      1. Si Bucket Inicio es E o mayor (E, F, G, H, I, J) → SIEMPRE VERDE ("Aplica convenio")
+      2. Si Bucket Inicio es A, B, C, D:
+         - Si nPaid >= 50% de nTAmount → AMARILLO ("Revisar status Convenio")
+         - Si nPaid < 50% de nTAmount  → ROJO ("Sin Convenio")
 
     Returns:
         {
@@ -222,43 +218,43 @@ def getSemaforo(fila: pd.Series) -> dict:
     bucketRaw = obtenerValorColumna(fila, "Bucket Inicio")
     letra = _parsearLetraBucket(bucketRaw)
 
-    # Calcular si aplica AMARILLO: nPaid >= 50% de nTAmount
+    # Calcular porcentaje pagado (evitando divisiones por cero)
     rawNPaid   = obtenerValorColumna(fila, "nPaid")
     rawNTAmount = obtenerValorColumna(fila, "nTAmount")
     nPaid    = _toFloat(rawNPaid)   or 0.0
     nTAmount = _toFloat(rawNTAmount) or 0.0
 
-    aplicaAmarillo = (nTAmount > 0) and (nPaid >= 0.5 * nTAmount)
+    abonoSuficiente = (nTAmount > 0) and (nPaid >= 0.5 * nTAmount)
 
-    # ── Prioridad 1: VERDE ──
-    if letra in _BUCKETS_VERDE:
+    # ── Prioridad 1: VERDE (Bucket E o mayor) ──
+    if letra in _BUCKETS_DESCUENTO:
         return {
             "color":    "verde",
             "label":    "Aplica convenio",
-            "motivo":   f"Bucket {letra} — al corriente",
+            "motivo":   f"Bucket {letra} — 90+ días",
             "hex_bg":   "#0f2d12",
             "hex_text": "#3fb950",
             "hex_brd":  "#238636",
             "emoji":    "🟢",
         }
 
-    # ── Prioridad 2: AMARILLO ──
-    if aplicaAmarillo:
+    # ── Prioridad 2: AMARILLO (Bucket A-D y abono >= 50%) ──
+    if letra in _BUCKETS_VERDE and abonoSuficiente:
         return {
             "color":    "amarillo",
             "label":    "Revisar status Convenio",
-            "motivo":   f"nPaid ≥ 50% del pagaré (Bucket {letra if letra else '?'})",
+            "motivo":   f"Bucket {letra} con nPaid ≥ 50%",
             "hex_bg":   "#2d1f00",
             "hex_text": "#e3b341",
             "hex_brd":  "#9e6a03",
             "emoji":    "🟡",
         }
 
-    # ── Prioridad 3: ROJO (bucket E+ o desconocido sin pago suficiente) ──
+    # ── Prioridad 3: ROJO (Bucket A-D y abono < 50% o casos no definidos) ──
     return {
         "color":    "rojo",
         "label":    "Sin Convenio",
-        "motivo":   f"Bucket {letra if letra else '?'} — vencido 90+ días",
+        "motivo":   f"Bucket {letra if letra else '?'} con nPaid < 50%",
         "hex_bg":   "#2d0e0e",
         "hex_text": "#f85149",
         "hex_brd":  "#da3633",
