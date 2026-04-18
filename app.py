@@ -49,6 +49,7 @@ from utils.formato import (
     TEXTO_SIN_DATO,
 )
 from utils.calculos import calcularPlazo
+from utils.negocio import getPagoInfo, getMontoPagadoTotal, isDescuentoEnabled, getSemaforo
 
 
 # ─────────────────────────────────────────────
@@ -566,6 +567,115 @@ st.markdown(
         color: var(--color-muted);
         font-style: italic;
     }
+
+    /* ── Semáforo de riesgo ── */
+    .semaforo-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        border-radius: 10px;
+        padding: 10px 18px;
+        margin-bottom: 20px;
+        border: 1px solid;
+        font-family: 'Inter', sans-serif;
+    }
+    .semaforo-emoji { font-size: 1.2rem; }
+    .semaforo-label {
+        font-size: 0.82rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+    }
+    .semaforo-motivo {
+        font-size: 0.72rem;
+        font-weight: 400;
+        opacity: 0.8;
+        margin-left: 4px;
+    }
+
+    /* ── Calculadora de Descuento ── */
+    .calc-section {
+        background: var(--color-surface);
+        border: 1px solid var(--color-border);
+        border-radius: 12px;
+        padding: 0;
+        margin-top: 20px;
+        margin-bottom: 20px;
+        overflow: hidden;
+    }
+    .calc-header {
+        background: linear-gradient(90deg, #1a2450 0%, #21262d 100%);
+        border-bottom: 1px solid var(--color-border);
+        padding: 12px 20px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .calc-header span.calc-title {
+        font-size: 0.72rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        color: var(--color-muted);
+    }
+    .calc-body { padding: 18px 20px; }
+    .calc-sub-title {
+        font-size: 0.68rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1.2px;
+        color: var(--color-label);
+        margin-bottom: 8px;
+        margin-top: 14px;
+        padding-bottom: 4px;
+        border-bottom: 1px solid #21262d;
+    }
+    .calc-result-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        padding: 8px 0;
+        border-bottom: 1px solid #21262d;
+    }
+    .calc-result-row:last-child { border-bottom: none; }
+    .calc-result-label {
+        font-size: 0.78rem;
+        color: var(--color-muted);
+    }
+    .calc-result-value {
+        font-size: 0.9rem;
+        font-weight: 600;
+        color: #79c0ff;
+        font-variant-numeric: tabular-nums;
+    }
+    .calc-result-value.highlight {
+        color: #3fb950;
+        font-size: 1rem;
+    }
+    .calc-disabled {
+        background: #161b22;
+        border: 1px solid #30363d;
+        border-left: 4px solid #6e3030;
+        border-radius: 8px;
+        padding: 16px 20px;
+        font-size: 0.85rem;
+        color: #8b949e;
+        margin: 16px 0;
+    }
+    .pago-tipo-badge {
+        display: inline-block;
+        padding: 2px 10px;
+        border-radius: 4px;
+        font-size: 0.7rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+        margin-left: 8px;
+    }
+    .pago-tipo-domi  { background:#1a2d50; color:#58a6ff; border:1px solid #2563eb; }
+    .pago-tipo-cash  { background:#1a2d1a; color:#3fb950; border:1px solid #238636; }
+    .pago-tipo-ambos { background:#2d2500; color:#e3b341; border:1px solid #9e6a03; }
+    .field-value.total-pago { color: #3fb950; font-weight: 700; font-size: 0.95rem; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -687,6 +797,9 @@ def renderizarResultado(fila: pd.Series):
     vRef = formatearTexto(obtenerValorColumna(fila, "vReference"))
     st.markdown(f'<div class="vref-chip">📌 VREFERENCE: {vRef}</div>', unsafe_allow_html=True)
 
+    # ── Semáforo de riesgo (se muestra inmediatamente debajo del chip) ──
+    renderizarSemaforo(fila)
+
     # ── Calcular plazo (campo derivado) ──
     plazo = calcularPlazo(fila)
 
@@ -734,8 +847,14 @@ def renderizarResultado(fila: pd.Series):
 
         renderizarTarjeta("Montos de Negociación", "💰", contenidoMontos)
 
-        # ── Tarjeta: Pago del Mes ──
+        # ── Tarjeta: Pago del Mes (extendida con detección inteligente) ──
+        # NUEVO: Se detecta automáticamente si el pago fue domiciliado o en efectivo.
+        # Si ambos tienen valor > 0, se muestran ambos y se suma el total.
         def contenidoPago():
+            pagoInfo = getPagoInfo(fila)
+            tipoPago = pagoInfo["tipoPago"]
+
+            # Mostrar siempre los montos individuales presentes en los datos
             renderizarFila(
                 "Pago Domiciliado",
                 formatearMoneda(obtenerValorColumna(fila, "Pago domi")),
@@ -746,10 +865,58 @@ def renderizarResultado(fila: pd.Series):
                 formatearMoneda(obtenerValorColumna(fila, "Pago cash")),
                 "moneda",
             )
+
+            # Badge visual indicando el tipo de pago detectado
+            if tipoPago == "ambos":
+                badgeHtml = '<span class="pago-tipo-badge pago-tipo-ambos">⚡ Ambos pagos</span>'
+            elif tipoPago == "domi":
+                badgeHtml = '<span class="pago-tipo-badge pago-tipo-domi">🏛 Domiciliado</span>'
+            elif tipoPago == "cash":
+                badgeHtml = '<span class="pago-tipo-badge pago-tipo-cash">💵 Efectivo</span>'
+            else:
+                badgeHtml = ""
+
+            # Fecha según tipo de pago detectado:
+            # domi  → vDateMovement
+            # cash  → F.Aplicacion
+            # ambos → F.Aplicacion (fecha de aplicación como referencia)
+            fechaPago = pagoInfo["fechaPago"]
+            if tipoPago == "domi":
+                labelFecha = "Fecha Pago Domiciliado"
+            elif tipoPago == "ambos":
+                labelFecha = "Fecha Pago Aplicado"
+            else:
+                labelFecha = "Fecha del Pago Aplicado"
+
+            if badgeHtml:
+                st.markdown(
+                    f'<div style="padding:6px 0 2px 0">'
+                    f'<span style="font-size:0.74rem;color:#8b949e">Tipo detectado:</span>'
+                    f'{badgeHtml}</div>',
+                    unsafe_allow_html=True,
+                )
+
+            renderizarFila(labelFecha, formatearFecha(fechaPago), "fecha")
+
+            # nPaid: cuánto ha pagado el cliente al corte
             renderizarFila(
-                "Fecha del Pago Aplicado",
-                formatearFecha(obtenerValorColumna(fila, "F.Aplicacion")),
-                "fecha",
+                "Pagado al Corte (nPaid)",
+                formatearMoneda(obtenerValorColumna(fila, "nPaid")),
+                "moneda",
+            )
+
+            # Monto pagado total = nPaid + pagoDetectado (campo de negocio)
+            montoTotal = getMontoPagadoTotal(fila)
+            st.markdown(
+                f"""
+                <div class="field-row" style="border-top:1px solid #30363d;margin-top:6px;padding-top:10px">
+                    <span class="field-label">Monto Pagado Total<br>
+                        <span style="font-size:0.68rem;color:#484f58">(nPaid + pago detectado)</span>
+                    </span>
+                    <span class="field-value total-pago">{formatearMoneda(montoTotal)}</span>
+                </div>
+                """,
+                unsafe_allow_html=True,
             )
 
         renderizarTarjeta("Pago del Mes", "📅", contenidoPago)
@@ -774,6 +941,7 @@ def renderizarResultado(fila: pd.Series):
 
         # ── Tarjeta: Saldos ──
         # Saldo Vencido → columna real: nDueBalance_x
+        # nDueBalance_y: si viene en los datos, también se etiqueta como "Saldo Vencido"
         def contenidoSaldos():
             renderizarFila(
                 "Saldo Total",
@@ -785,6 +953,14 @@ def renderizarResultado(fila: pd.Series):
                 formatearMoneda(obtenerValorColumna(fila, "nDueBalance_x")),
                 "moneda",
             )
+            # Si nDueBalance_y existe y tiene valor, mostrarlo también
+            valDueY = obtenerValorColumna(fila, "nDueBalance_y")
+            if valDueY is not None:
+                renderizarFila(
+                    "Saldo Vencido (período 2)",
+                    formatearMoneda(valDueY),
+                    "moneda",
+                )
 
         renderizarTarjeta("Saldos", "📊", contenidoSaldos)
 
@@ -810,6 +986,222 @@ def renderizarResultado(fila: pd.Series):
             )
 
         renderizarTarjeta("Información del Crédito", "📄", contenidoCredito)
+
+    # ── Calculadora de Descuento (sección nueva, debajo del layout de columnas) ──
+    renderizarCalculadora(fila)
+
+
+def renderizarSemaforo(fila: pd.Series):
+    """
+    Renderiza el badge semáforo de riesgo del crédito.
+    Aparece inmediatamente debajo del chip VREFERENCE.
+    """
+    semaforo = getSemaforo(fila)
+    st.markdown(
+        f"""
+        <div class="semaforo-badge" style="
+            background-color:{semaforo['hex_bg']};
+            border-color:{semaforo['hex_brd']};
+            color:{semaforo['hex_text']};
+        ">
+            <span class="semaforo-emoji">{semaforo['emoji']}</span>
+            <div>
+                <span class="semaforo-label">{semaforo['label']}</span>
+                <span class="semaforo-motivo">· {semaforo['motivo']}</span>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _safeFloat(valor) -> float | None:
+    """Helper para conversión segura a float sin ciclos."""
+    if valor is None:
+        return None
+    if isinstance(valor, float) and pd.isna(valor):
+        return None
+    try:
+        s = str(valor).strip().replace(",", "").replace("$", "")
+        if s == "" or s.lower() in ("nan", "none", "null"):
+            return None
+        return float(s)
+    except (ValueError, TypeError):
+        return None
+
+
+def renderizarCalculadora(fila: pd.Series):
+    """
+    Renderiza la Calculadora de Descuento como sección independiente.
+    """
+    bucketRaw = obtenerValorColumna(fila, "Bucket Inicio")
+    habilitada = isDescuentoEnabled(bucketRaw)
+
+    # ── Cabecera HTML de la sección ──
+    st.markdown(
+        """
+        <div class="calc-section">
+            <div class="calc-header">
+                <span style="font-size:1rem">🧮</span>
+                <span class="calc-title">Calculadora de Descuento</span>
+            </div>
+            <div class="calc-body">
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if not habilitada:
+        st.markdown(
+            f"""
+            <div class="calc-disabled">
+                🔒 La calculadora de descuento <strong>solo aplica para Bucket Inicio 90+</strong>
+                (E, F, G, H, I, J).<br>
+                Bucket actual: <strong>{formatearTexto(bucketRaw)}</strong>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.markdown("</div></div>", unsafe_allow_html=True)
+        return
+
+    # ── Datos base ──
+    pagoInfo     = getPagoInfo(fila)
+    nAmount      = _safeFloat(obtenerValorColumna(fila, "nAmount"))  or 0.0
+    nTAmount     = _safeFloat(obtenerValorColumna(fila, "nTAmount")) or 0.0
+    nPaid        = _safeFloat(obtenerValorColumna(fila, "nPaid"))    or 0.0
+    pagoDetectado = pagoInfo["pagoDetectado"]
+
+    montoPagado    = round(nPaid + pagoDetectado, 2)
+    montoPendiente = round(nTAmount - montoPagado, 2)
+
+    # ── Tabla de datos base (HTML estático) ──
+    st.markdown('<div class="calc-sub-title">📋 Datos Base del Crédito</div>', unsafe_allow_html=True)
+    st.markdown(
+        f"""
+        <div class="calc-result-row">
+            <span class="calc-result-label">Préstamo Solicitado (nAmount)</span>
+            <span class="calc-result-value">{formatearMoneda(nAmount)}</span>
+        </div>
+        <div class="calc-result-row">
+            <span class="calc-result-label">Pagaré Firmado (nTAmount)</span>
+            <span class="calc-result-value">{formatearMoneda(nTAmount)}</span>
+        </div>
+        <div class="calc-result-row">
+            <span class="calc-result-label">Monto Pagado (nPaid + pago detectado)</span>
+            <span class="calc-result-value">{formatearMoneda(montoPagado)}</span>
+        </div>
+        <div class="calc-result-row">
+            <span class="calc-result-label">Monto Pendiente (nTAmount − Monto Pagado)</span>
+            <span class="calc-result-value">{formatearMoneda(montoPendiente)}</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # Cerrar el HTML antes de los widgets nativos de Streamlit
+    st.markdown("</div></div>", unsafe_allow_html=True)
+
+    # ── Separador y parámetros del gestor (widgets nativos) ──
+    st.markdown("---")
+    st.markdown(
+        '<p style="font-size:0.72rem;font-weight:700;text-transform:uppercase;'
+        'letter-spacing:1.2px;color:#58a6ff;margin-bottom:4px">✏️ Parámetros del Gestor</p>',
+        unsafe_allow_html=True,
+    )
+
+    # Claves únicas de st.session_state por vReference para persistir los valores
+    vRefKey  = str(obtenerValorColumna(fila, "vReference") or "").strip()
+    keyPorc  = f"calc_porcentaje_{vRefKey}"
+    keyMeses = f"calc_meses_{vRefKey}"
+
+    if keyPorc not in st.session_state:
+        st.session_state[keyPorc]  = 0.0
+    if keyMeses not in st.session_state:
+        st.session_state[keyMeses] = 1
+
+    colA, colB, colC = st.columns([2, 2, 1])
+    with colA:
+        porcentaje = st.number_input(
+            "Porcentaje de Descuento (%)",
+            min_value=0.0,
+            max_value=100.0,
+            value=float(st.session_state[keyPorc]),
+            step=1.0,
+            format="%.1f",
+            help="Porcentaje a negociar (ej. 20 = 20%)",
+            key=keyPorc,
+        )
+    with colB:
+        meses = st.number_input(
+            "Número de Meses",
+            min_value=1,
+            max_value=360,
+            value=int(st.session_state[keyMeses]),
+            step=1,
+            help="Meses para la alternativa de pago",
+            key=keyMeses,
+        )
+    with colC:
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("🔄 Limpiar", key=f"calc_limpiar_{vRefKey}", use_container_width=True):
+            st.session_state[keyPorc]  = 0.0
+            st.session_state[keyMeses] = 1
+            st.rerun()
+
+    # ── Validaciones ──
+    hayError = False
+    if porcentaje < 0 or porcentaje > 100:
+        st.markdown(
+            '<div class="alerta-warning">⚠️ El porcentaje debe estar entre 0 y 100.</div>',
+            unsafe_allow_html=True,
+        )
+        hayError = True
+    if meses <= 0:
+        st.markdown(
+            '<div class="alerta-warning">⚠️ El número de meses debe ser mayor a 0.</div>',
+            unsafe_allow_html=True,
+        )
+        hayError = True
+    if montoPendiente <= 0 and not hayError:
+        st.markdown(
+            '<div class="alerta-info">ℹ️ El monto pendiente es 0 o negativo; '
+            'el crédito podría estar saldado.</div>',
+            unsafe_allow_html=True,
+        )
+
+    if not hayError:
+        # ── Cálculos finales ──
+        descuento         = round(montoPendiente * (porcentaje / 100), 2)
+        promocionLiquidar = round(montoPendiente - descuento, 2)
+        pagoMensual       = round(promocionLiquidar / meses, 2) if meses > 0 else 0.0
+
+        # ── Tabla de resultados ──
+        st.markdown(
+            '<p style="font-size:0.72rem;font-weight:700;text-transform:uppercase;'
+            'letter-spacing:1.2px;color:#58a6ff;margin-top:16px;margin-bottom:4px">'
+            '📊 Resultados</p>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            f"""
+            <div style="background:#0d1117;border:1px solid #30363d;border-radius:10px;
+                        padding:16px 20px;margin-top:8px">
+                <div class="calc-result-row">
+                    <span class="calc-result-label">Descuento aplicado ({porcentaje:.1f}%)</span>
+                    <span class="calc-result-value">− {formatearMoneda(descuento)}</span>
+                </div>
+                <div class="calc-result-row">
+                    <span class="calc-result-label">🎯 Promoción para Liquidar</span>
+                    <span class="calc-result-value highlight">{formatearMoneda(promocionLiquidar)}</span>
+                </div>
+                <div class="calc-result-row">
+                    <span class="calc-result-label">💳 Pago Mensual ({meses} mes{'es' if meses != 1 else ''})</span>
+                    <span class="calc-result-value highlight">{formatearMoneda(pagoMensual)}</span>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
 
 def renderizarOtrosVReference(fila: pd.Series, dfCompleto: pd.DataFrame):
