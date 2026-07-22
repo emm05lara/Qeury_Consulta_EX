@@ -769,12 +769,27 @@ if "busquedaActual" not in st.session_state:
     st.session_state.busquedaActual = ""
 if "resultadoCliente" not in st.session_state:
     st.session_state.resultadoCliente = None
+if "inputVReference" not in st.session_state:
+    st.session_state.inputVReference = ""
 # Nombre y fuente del archivo actualmente cargado
 if "archivoNombre" not in st.session_state:
     st.session_state.archivoNombre = None
 # Fuente: "repo" | "manual" | None
 if "fuenteArchivo" not in st.session_state:
     st.session_state.fuenteArchivo = None
+
+
+def limpiarBusqueda():
+    """
+    Callback del botón "✕ Limpiar" (y de los flujos que deben dejar la
+    búsqueda en blanco). Se ejecuta ANTES del rerun provocado por la
+    interacción, por lo que modificar st.session_state.inputVReference aquí
+    es seguro: el widget con esa key todavía no ha sido instanciado en el
+    rerun que esta función origina.
+    """
+    st.session_state.inputVReference = ""
+    st.session_state.busquedaActual = ""
+    st.session_state.resultadoCliente = None
 
 
 # ─────────────────────────────────────────────
@@ -1460,8 +1475,7 @@ with st.sidebar:
                 st.session_state.dataframe = None
                 st.session_state.archivoNombre = None
                 st.session_state.fuenteArchivo = None
-                st.session_state.busquedaActual = ""
-                st.session_state.resultadoCliente = None
+                limpiarBusqueda()
                 st.rerun()
         else:
             # Si es carga manual, botón para descartarla y volver al repo
@@ -1469,8 +1483,7 @@ with st.sidebar:
                 st.session_state.dataframe = None
                 st.session_state.archivoNombre = None
                 st.session_state.fuenteArchivo = None
-                st.session_state.busquedaActual = ""
-                st.session_state.resultadoCliente = None
+                limpiarBusqueda()
                 st.rerun()
 
     else:
@@ -1528,8 +1541,7 @@ with st.sidebar:
                     st.session_state.dataframe = df
                     st.session_state.archivoNombre = archivoSubido.name
                     st.session_state.fuenteArchivo = "manual"
-                    st.session_state.busquedaActual = ""
-                    st.session_state.resultadoCliente = None
+                    limpiarBusqueda()
                     st.rerun()
                 else:
                     st.session_state.dataframe = None
@@ -1639,17 +1651,17 @@ colBusqueda, colLimpiar = st.columns([5, 1], gap="small")
 with colBusqueda:
     valorBusqueda = st.text_input(
         label="VREFERENCE",
-        value=st.session_state.busquedaActual,
         placeholder="Pega o escribe el número de referencia del cliente...",
         key="inputVReference",
         label_visibility="collapsed",
     )
 
 with colLimpiar:
-    if st.button("✕ Limpiar", use_container_width=True):
-        st.session_state.busquedaActual = ""
-        st.session_state.resultadoCliente = None
-        st.rerun()
+    st.button(
+        "✕ Limpiar",
+        use_container_width=True,
+        on_click=limpiarBusqueda,
+    )
 
 st.markdown("</div>", unsafe_allow_html=True)
 
