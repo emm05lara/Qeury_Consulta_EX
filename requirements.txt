@@ -1,4 +1,10 @@
-streamlit>=1.32.0
+# Versión fijada: los selectores internos data-testid del sidebar y de los
+# iconos (stIconMaterial, stSidebarCollapseButton, stExpandSidebarButton,
+# stFileUploaderDropzone) sobre los que se apoya el CSS corresponden a esta
+# versión, verificada localmente con `streamlit --version` (1.52.1).
+# Un rango abierto (>=) permitía que cada despliegue instalara una versión
+# distinta con selectores diferentes, rompiendo el sidebar de forma intermitente.
+streamlit==1.52.1
 pandas>=2.0.0
 openpyxl>=3.1.0
 xlrd>=2.0.1

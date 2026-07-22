@@ -11,13 +11,12 @@
 #  4. Para actualizar datos: reemplaza el archivo en data/ y haz push/deploy.
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #
-#  SIDEBAR SIEMPRE VISIBLE
-#  Se eliminó la dependencia del botón nativo de Streamlit para colapsar/expandir.
-#  En su lugar, la configuración y filtros se presentan en un panel lateral fijo
-#  usando initial_sidebar_state="expanded" y CSS reforzado para garantizar
-#  que el botón de reapertura del sidebar siempre sea visible.
-#  Si el usuario colapsa el sidebar, verá un botón "⚙️ Opciones" en el área
-#  principal como respaldo adicional.
+#  SIDEBAR
+#  El sidebar usa el comportamiento NATIVO de Streamlit para colapsar/reabrir
+#  (botones stSidebarCollapseButton y stExpandSidebarButton). El CSS solo aplica
+#  estilos visuales seguros y NO fuerza display/position/visibility/tamaño sobre
+#  esos controles, de modo que el toggle funciona de forma repetida sin recargar.
+#  Arranca expandido con initial_sidebar_state="expanded".
 #
 #  TEMA VISUAL INDEPENDIENTE
 #  El tema oscuro ejecutivo se fuerza via:
@@ -108,54 +107,71 @@ st.markdown(
         background-color: var(--color-surface) !important;
         border-right: 1px solid var(--color-border) !important;
     }
-    /* Todos los textos dentro del sidebar */
-    [data-testid="stSidebar"] * {
+
+    /* ── Tipografía del sidebar ──
+       IMPORTANTE: NO se usa el selector global [data-testid="stSidebar"] *
+       para asignar la fuente. Ese selector aplicaba 'Inter' con !important
+       también a los iconos nativos de Streamlit (span[data-testid="stIconMaterial"]),
+       que son LIGADURAS de la fuente "Material Symbols Rounded". Al forzarles Inter,
+       la ligadura no se resolvía y aparecía el nombre interno del icono como texto
+       (keyboard_double_arrow_left, upload, arrow_right, etc.).
+       Solución: aplicar Inter SOLO a elementos textuales, nunca a los iconos. */
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] li,
+    [data-testid="stSidebar"] a,
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] h1,
+    [data-testid="stSidebar"] h2,
+    [data-testid="stSidebar"] h3,
+    [data-testid="stSidebar"] h4,
+    [data-testid="stSidebar"] h5,
+    [data-testid="stSidebar"] h6,
+    [data-testid="stSidebar"] input,
+    [data-testid="stSidebar"] textarea,
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"],
+    [data-testid="stSidebar"] .stButton > button,
+    [data-testid="stSidebar"] span:not([data-testid="stIconMaterial"]) {
         color: var(--color-text) !important;
         font-family: 'Inter', sans-serif !important;
     }
 
-    /* ─────────────────────────────────────────────────────────
-       SIDEBAR SIEMPRE ACCESIBLE
-       Streamlit tiene un comportamiento inconsistente con el botón
-       de toggle del sidebar según la versión y el navegador.
-       Esta regla garantiza que el botón colapsado SIEMPRE sea visible
-       contra el fondo oscuro de la app.
-    ───────────────────────────────────────────────────────── */
-    /* Botón de colapsar/expandir sidebar — siempre visible */
-    [data-testid="collapsedControl"],
-    [data-testid="stSidebarCollapsedControl"],
-    section[data-testid="stSidebarCollapsedControl"] {
-        visibility: visible !important;
-        display: flex !important;
-        opacity: 1 !important;
-        pointer-events: auto !important;
-        z-index: 999 !important;
-    }
-    /* Estilo del botón para que se vea claramente en modo oscuro */
-    [data-testid="collapsedControl"] button,
-    [data-testid="stSidebarCollapsedControl"] button,
-    [data-testid="stSidebarCollapsedControl"] > * {
-        background-color: #1c2333 !important;
-        border: 1px solid #30363d !important;
-        border-radius: 8px !important;
-        color: #58a6ff !important;
-        width: 36px !important;
-        height: 36px !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-    }
-    [data-testid="collapsedControl"] button:hover,
-    [data-testid="stSidebarCollapsedControl"] button:hover {
-        background-color: #2563eb !important;
-        border-color: #2563eb !important;
-        color: #ffffff !important;
+    /* ── Restaurar la fuente de los iconos nativos (Material Symbols) ──
+       Se aplica GLOBALMENTE (no solo dentro del sidebar) para que también el
+       botón de reapertura del sidebar, que Streamlit monta en el header, muestre
+       su icono correctamente. Se listan varios selectores por resiliencia entre
+       versiones: el data-testid es el estable en Streamlit 1.52.x; las clases
+       .material-symbols-* actúan como respaldo si el testid cambiara. */
+    [data-testid="stIconMaterial"],
+    span[data-testid="stIconMaterial"],
+    .material-symbols-rounded,
+    .material-symbols-outlined,
+    .material-symbols-sharp {
+        font-family: 'Material Symbols Rounded',
+                     'Material Symbols Outlined',
+                     'Material Symbols Sharp' !important;
+        font-weight: normal !important;
+        font-style: normal !important;
+        letter-spacing: normal !important;
+        text-transform: none !important;
+        white-space: nowrap !important;
+        direction: ltr !important;
+        -webkit-font-feature-settings: 'liga' !important;
+        font-feature-settings: 'liga' !important;
+        -webkit-font-smoothing: antialiased !important;
     }
 
-    /* Asegurar que el ícono SVG del toggle herede el color */
-    [data-testid="collapsedControl"] button svg,
-    [data-testid="stSidebarCollapsedControl"] button svg {
-        fill: currentColor !important;
+    /* ── Botones de colapsar / reabrir el sidebar ──
+       Se confía en el comportamiento y la posición NATIVOS de Streamlit.
+       Solo se aplican estilos visuales seguros (color / fondo / borde) que NO
+       alteran display, position, width, height, visibility ni pointer-events,
+       por lo que no interfieren con el toggle ni con la animación del sidebar.
+       Selectores reales de Streamlit 1.52.x:
+         - stSidebarCollapseButton → colapsar (dentro del header del sidebar)
+         - stExpandSidebarButton   → reabrir (montado en el header de la app) */
+    [data-testid="stSidebarCollapseButton"] button:hover,
+    [data-testid="stExpandSidebarButton"] button:hover {
+        background-color: var(--color-surface2) !important;
+        color: var(--color-label) !important;
     }
 
     /* ── Header principal ── */
@@ -366,10 +382,21 @@ st.markdown(
         color: #ffa0a0;
     }
 
-    /* ── Ocultar branding de Streamlit sin afectar el botón del sidebar ── */
+    /* ── Ocultar branding de Streamlit ──
+       [data-testid="stToolbar"] se oculta para esconder el menú/branding nativo.
+       PERO: cuando el sidebar está colapsado, Streamlit (1.52.x) monta el botón
+       de reapertura (stExpandSidebarButton) DENTRO de ese mismo stToolbar. Un
+       display:none incondicional sobre el ancestro deja ese botón inexistente
+       para el layout y el puntero, y el sidebar queda irrecuperable sin recargar.
+       La excepción con :has() mantiene oculto el branding en todos los casos
+       excepto cuando el toolbar es, específicamente, el que contiene el botón
+       de reapertura. */
     #MainMenu { visibility: hidden; }
     footer { visibility: hidden; }
     [data-testid="stToolbar"] { display: none !important; }
+    [data-testid="stToolbar"]:has([data-testid="stExpandSidebarButton"]) {
+        display: flex !important;
+    }
     [data-testid="stDecoration"] { display: none !important; }
     [data-testid="stStatusWidget"] { display: none !important; }
 
@@ -419,6 +446,14 @@ st.markdown(
         color: var(--color-text) !important;
         font-family: 'Inter', sans-serif !important;
         font-size: 0.85rem !important;
+        /* El encabezado completo debe ser clickeable y sin solapamientos */
+        display: flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+    }
+    /* La flecha del expander es un icono Material; no debe encimarse con el título */
+    [data-testid="stExpander"] summary [data-testid="stIconMaterial"] {
+        flex-shrink: 0 !important;
     }
 
     /* ── Divider ── */
@@ -433,6 +468,49 @@ st.markdown(
         background-color: var(--color-surface2) !important;
         border-radius: 8px !important;
         border: 1px dashed var(--color-border) !important;
+    }
+    /* La dropzone contiene: icono (Material) + texto + botón "Browse".
+       Se permite que el contenido se ajuste al ancho del sidebar sin overflow. */
+    [data-testid="stFileUploaderDropzone"] {
+        flex-wrap: wrap !important;
+        gap: 8px !important;
+        padding: 12px 14px !important;
+    }
+    [data-testid="stFileUploaderDropzone"] > div {
+        min-width: 0 !important;
+    }
+    /* Instrucciones y tipos permitidos: legibles y sin desbordar */
+    [data-testid="stFileUploaderDropzoneInstructions"] {
+        min-width: 0 !important;
+    }
+    [data-testid="stFileUploaderDropzoneInstructions"] span,
+    [data-testid="stFileUploaderDropzoneInstructions"] small {
+        color: var(--color-muted) !important;
+        white-space: normal !important;
+        word-break: break-word !important;
+    }
+    /* Nombre del archivo subido: que no se salga del contenedor */
+    [data-testid="stFileUploaderFile"] {
+        min-width: 0 !important;
+    }
+    [data-testid="stFileUploaderFileName"] {
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+    }
+    /* El sidebar nunca debe producir scroll horizontal */
+    [data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {
+        overflow-x: hidden !important;
+    }
+
+    /* ── Ajustes responsive para pantallas estrechas (~320–400px) ── */
+    @media (max-width: 480px) {
+        [data-testid="stFileUploaderDropzone"] {
+            flex-direction: column !important;
+            align-items: stretch !important;
+        }
+        [data-testid="stFileUploaderDropzone"] button {
+            width: 100% !important;
+        }
     }
 
     /* ── Select / radio / checkbox nativos — forzar paleta oscura ── */
@@ -1323,9 +1401,8 @@ def renderizarOtrosVReference(fila: pd.Series, dfCompleto: pd.DataFrame):
 
 # ─────────────────────────────────────────────
 #  SIDEBAR
-#  Se mantiene siempre expandida (initial_sidebar_state="expanded").
-#  El CSS reforza el botón de toggle para que siempre sea visible.
-#  El contenido de configuración/filtros nunca queda "atrapado" sin acceso.
+#  Arranca expandida (initial_sidebar_state="expanded"). El colapso y la
+#  reapertura los gestiona Streamlit de forma nativa; el CSS no interfiere.
 # ─────────────────────────────────────────────
 with st.sidebar:
     # ── Logotipo / Título ──
