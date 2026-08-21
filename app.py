@@ -53,7 +53,7 @@ from utils.negocio import (
     getMontoPagadoTotal,
     isDescuentoEnabled,
     getSemaforo,
-    getTipoAfiliado,
+    getAfiliadoInfo,
 )
 
 
@@ -677,7 +677,7 @@ st.markdown(
         margin-left: 4px;
     }
 
-    /* ── Badge de Tipo de Afiliado (ACTIVO / PENSIONADO) ── */
+    /* ── Badge de vAfiliado (valor real; el color solo indica la categoría) ── */
     .afiliado-badge {
         display: inline-flex;
         align-items: center;
@@ -689,10 +689,13 @@ st.markdown(
         font-family: 'Inter', sans-serif;
         font-size: 0.78rem;
         font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 1px;
+        letter-spacing: 0.5px;
+        max-width: 100%;
+        overflow-wrap: break-word;
+        word-break: break-word;
+        white-space: normal;
     }
-    .afiliado-icono { font-size: 0.95rem; }
+    .afiliado-icono { font-size: 0.95rem; flex-shrink: 0; }
     .afiliado-activo {
         background: #0f2d12;
         color: #3fb950;
@@ -946,7 +949,8 @@ def renderizarResultado(fila: pd.Series):
         # ── Tarjeta: Datos del Cliente ──
         def contenidoCliente():
             renderizarFila("Nombre", formatearTexto(obtenerValorColumna(fila, "vName")), "destacado")
-            renderizarFila("Tipo de afiliado", getTipoAfiliado(fila))
+            renderizarFila("Teléfono", formatearTexto(obtenerValorColumna(fila, "Telefono")))
+            renderizarFila("Afiliado", getAfiliadoInfo(fila)["valor"])
             renderizarFila("Bucket", formatearTexto(obtenerValorColumna(fila, "Bucket Inicio")))
             renderizarFila("Gestor", formatearTexto(obtenerValorColumna(fila, "Gestor")))
 
@@ -1128,15 +1132,19 @@ def renderizarResultado(fila: pd.Series):
 
 def renderizarAfiliadoBadge(fila: pd.Series):
     """
-    Renderiza el badge visual de tipo de afiliado (ACTIVO / PENSIONADO).
+    Renderiza el badge visual del campo vAfiliado.
+    Muestra el valor REAL de la celda (nunca una etiqueta genérica);
+    la categoría calculada por getAfiliadoInfo solo determina el color.
     Aparece inmediatamente debajo del chip VREFERENCE y antes del semáforo.
     """
-    tipoAfiliado = getTipoAfiliado(fila)
+    afiliadoInfo = getAfiliadoInfo(fila)
+    categoria = afiliadoInfo["categoria"]
+    valor = afiliadoInfo["valor"]
 
-    if tipoAfiliado == "PENSIONADO":
+    if categoria == "pensionado":
         claseCss = "afiliado-pensionado"
         icono = "👤"
-    elif tipoAfiliado == "ACTIVO":
+    elif categoria == "activo":
         claseCss = "afiliado-activo"
         icono = "✓"
     else:
@@ -1146,7 +1154,7 @@ def renderizarAfiliadoBadge(fila: pd.Series):
     st.markdown(
         f"""
         <div class="afiliado-badge {claseCss}">
-            <span class="afiliado-icono">{icono}</span>{tipoAfiliado}
+            <span class="afiliado-icono">{icono}</span>{valor}
         </div>
         """,
         unsafe_allow_html=True,

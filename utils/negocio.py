@@ -18,10 +18,10 @@ from utils.formato import obtenerValorColumna, TEXTO_SIN_DATO
 # Texto mostrado cuando la columna vAfiliado no existe o el valor está vacío.
 TEXTO_AFILIADO_SIN_DATO = "SIN DATO"
 
-# Términos que determinan la categoría visual "pensionado" (violeta).
-# Se buscan como palabra completa (límites de palabra), insensible a mayúsculas,
-# sobre el texto ya normalizado con casefold().
-_PATRON_PENSIONADO = re.compile(
+# Términos que determinan la categoría visual "pensionado" (violeta):
+# "pensionado", "pensionados" o "jyp", como palabra completa (límites de
+# palabra) e insensible a mayúsculas/minúsculas.
+_PATRON_CATEGORIA_PENSIONADO = re.compile(
     r"\b(?:pensionados?|jyp)\b",
     flags=re.IGNORECASE,
 )
@@ -293,8 +293,9 @@ def getAfiliadoInfo(fila: pd.Series) -> dict:
     Reglas:
       - Columna 'vAfiliado' ausente, o valor None/NaN/vacío/solo espacios
         → valor "SIN DATO", categoría "sin_dato".
-      - Valor (normalizado con casefold) que contenga el término "pensionado"
-        o "jyp" como palabra completa → categoría "pensionado" (estilo violeta).
+      - Valor que contenga el término "pensionado", "pensionados" o "jyp"
+        como palabra completa (insensible a mayúsculas) → categoría
+        "pensionado" (estilo violeta).
       - Cualquier otro contenido no vacío → categoría "activo" (estilo verde).
 
     Args:
