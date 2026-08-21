@@ -7,9 +7,16 @@
 #   - getMontoPagadoTotal(fila)  → float con nPaid + pagoDetectado
 #   - isDescuentoEnabled(bucket) → bool, true si bucket es E o mayor (90+)
 #   - getSemaforo(fila)          → dict con color, label, motivo y hex_bg
+#   - clasificarAfiliado(valor)  → "ACTIVO" | "PENSIONADO"
+#   - getTipoAfiliado(fila)      → "ACTIVO" | "PENSIONADO" | "SIN DATO"
 
 import pandas as pd
 from utils.formato import obtenerValorColumna, TEXTO_SIN_DATO
+
+
+# Texto mostrado cuando la columna vAfiliado no existe en el dataset cargado
+# (caso distinto a que exista y venga vacía, que se clasifica como ACTIVO).
+TEXTO_AFILIADO_SIN_DATO = "SIN DATO"
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -260,3 +267,55 @@ def getSemaforo(fila: pd.Series) -> dict:
         "hex_brd":  "#da3633",
         "emoji":    "🔴",
     }
+
+
+# ─────────────────────────────────────────────────────────────────
+#  clasificarAfiliado / getTipoAfiliado
+# ─────────────────────────────────────────────────────────────────
+
+def clasificarAfiliado(valor) -> str:
+    """
+    Clasifica un valor de la columna 'vAfiliado' como ACTIVO o PENSIONADO.
+
+    Regla de negocio:
+        Si el texto contiene la palabra "pensionado" (sin importar
+        mayúsculas/minúsculas, espacios o texto adicional) → "PENSIONADO".
+        En cualquier otro caso (incluye vacío, None o NaN)  → "ACTIVO".
+
+    Args:
+        valor: Valor crudo de vAfiliado (str, None, NaN, etc.).
+
+    Returns:
+        "ACTIVO" o "PENSIONADO".
+    """
+    if valor is None:
+        return "ACTIVO"
+    if isinstance(valor, float) and pd.isna(valor):
+        return "ACTIVO"
+
+    texto = str(valor).strip().casefold()
+    if "pensionado" in texto:
+        return "PENSIONADO"
+    return "ACTIVO"
+
+
+def getTipoAfiliado(fila: pd.Series) -> str:
+    """
+    Determina el tipo de afiliado del cliente a partir de la columna 'vAfiliado'.
+
+    Distingue dos casos:
+      - La columna existe pero el valor está vacío  → se aplica la regla normal (ACTIVO).
+      - La columna no existe en absoluto en el dataset → TEXTO_AFILIADO_SIN_DATO,
+        para no asumir silenciosamente que todo el mundo es ACTIVO.
+
+    Args:
+        fila: pd.Series con los datos del cliente.
+
+    Returns:
+        "ACTIVO", "PENSIONADO" o TEXTO_AFILIADO_SIN_DATO.
+    """
+    if "vAfiliado" not in fila.index:
+        return TEXTO_AFILIADO_SIN_DATO
+
+    valor = obtenerValorColumna(fila, "vAfiliado")
+    return clasificarAfiliado(valor)

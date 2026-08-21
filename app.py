@@ -48,7 +48,13 @@ from utils.formato import (
     TEXTO_SIN_DATO,
 )
 from utils.calculos import calcularPlazo
-from utils.negocio import getPagoInfo, getMontoPagadoTotal, isDescuentoEnabled, getSemaforo
+from utils.negocio import (
+    getPagoInfo,
+    getMontoPagadoTotal,
+    isDescuentoEnabled,
+    getSemaforo,
+    getTipoAfiliado,
+)
 
 
 # ─────────────────────────────────────────────
@@ -671,6 +677,38 @@ st.markdown(
         margin-left: 4px;
     }
 
+    /* ── Badge de Tipo de Afiliado (ACTIVO / PENSIONADO) ── */
+    .afiliado-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border-radius: 8px;
+        padding: 6px 14px;
+        margin-bottom: 16px;
+        border: 1px solid;
+        font-family: 'Inter', sans-serif;
+        font-size: 0.78rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+    }
+    .afiliado-icono { font-size: 0.95rem; }
+    .afiliado-activo {
+        background: #0f2d12;
+        color: #3fb950;
+        border-color: #238636;
+    }
+    .afiliado-pensionado {
+        background: #241a3d;
+        color: #c297ff;
+        border-color: #8957e5;
+    }
+    .afiliado-sindato {
+        background: #21262d;
+        color: var(--color-muted);
+        border-color: #30363d;
+    }
+
     /* ── Calculadora de Descuento ── */
     .calc-section {
         background: var(--color-surface);
@@ -890,6 +928,9 @@ def renderizarResultado(fila: pd.Series):
     vRef = formatearTexto(obtenerValorColumna(fila, "vReference"))
     st.markdown(f'<div class="vref-chip">📌 VREFERENCE: {vRef}</div>', unsafe_allow_html=True)
 
+    # ── Badge de Tipo de Afiliado (ACTIVO / PENSIONADO) ──
+    renderizarAfiliadoBadge(fila)
+
     # ── Semáforo de riesgo (se muestra inmediatamente debajo del chip) ──
     renderizarSemaforo(fila)
 
@@ -905,6 +946,7 @@ def renderizarResultado(fila: pd.Series):
         # ── Tarjeta: Datos del Cliente ──
         def contenidoCliente():
             renderizarFila("Nombre", formatearTexto(obtenerValorColumna(fila, "vName")), "destacado")
+            renderizarFila("Tipo de afiliado", getTipoAfiliado(fila))
             renderizarFila("Bucket", formatearTexto(obtenerValorColumna(fila, "Bucket Inicio")))
             renderizarFila("Gestor", formatearTexto(obtenerValorColumna(fila, "Gestor")))
 
@@ -1082,6 +1124,33 @@ def renderizarResultado(fila: pd.Series):
 
     # ── Calculadora de Descuento (sección nueva, debajo del layout de columnas) ──
     renderizarCalculadora(fila)
+
+
+def renderizarAfiliadoBadge(fila: pd.Series):
+    """
+    Renderiza el badge visual de tipo de afiliado (ACTIVO / PENSIONADO).
+    Aparece inmediatamente debajo del chip VREFERENCE y antes del semáforo.
+    """
+    tipoAfiliado = getTipoAfiliado(fila)
+
+    if tipoAfiliado == "PENSIONADO":
+        claseCss = "afiliado-pensionado"
+        icono = "👤"
+    elif tipoAfiliado == "ACTIVO":
+        claseCss = "afiliado-activo"
+        icono = "✓"
+    else:
+        claseCss = "afiliado-sindato"
+        icono = "⚠"
+
+    st.markdown(
+        f"""
+        <div class="afiliado-badge {claseCss}">
+            <span class="afiliado-icono">{icono}</span>{tipoAfiliado}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def renderizarSemaforo(fila: pd.Series):
