@@ -7,16 +7,24 @@
 #   - getMontoPagadoTotal(fila)  → float con nPaid + pagoDetectado
 #   - isDescuentoEnabled(bucket) → bool, true si bucket es E o mayor (90+)
 #   - getSemaforo(fila)          → dict con color, label, motivo y hex_bg
-#   - clasificarAfiliado(valor)  → "ACTIVO" | "PENSIONADO"
-#   - getTipoAfiliado(fila)      → "ACTIVO" | "PENSIONADO" | "SIN DATO"
+#   - getAfiliadoInfo(fila)      → dict con el valor real de vAfiliado y su categoría visual
+
+import re
 
 import pandas as pd
 from utils.formato import obtenerValorColumna, TEXTO_SIN_DATO
 
 
-# Texto mostrado cuando la columna vAfiliado no existe en el dataset cargado
-# (caso distinto a que exista y venga vacía, que se clasifica como ACTIVO).
+# Texto mostrado cuando la columna vAfiliado no existe o el valor está vacío.
 TEXTO_AFILIADO_SIN_DATO = "SIN DATO"
+
+# Términos que determinan la categoría visual "pensionado" (violeta).
+# Se buscan como palabra completa (límites de palabra), insensible a mayúsculas,
+# sobre el texto ya normalizado con casefold().
+_PATRON_PENSIONADO = re.compile(
+    r"\b(?:pensionados?|jyp)\b",
+    flags=re.IGNORECASE,
+)
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -270,52 +278,50 @@ def getSemaforo(fila: pd.Series) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────
-#  clasificarAfiliado / getTipoAfiliado
+#  getAfiliadoInfo
 # ─────────────────────────────────────────────────────────────────
 
-def clasificarAfiliado(valor) -> str:
+def getAfiliadoInfo(fila: pd.Series) -> dict:
     """
-    Clasifica un valor de la columna 'vAfiliado' como ACTIVO o PENSIONADO.
+    Determina cómo presentar el campo 'vAfiliado' del cliente.
 
-    Regla de negocio:
-        Si el texto contiene la palabra "pensionado" (sin importar
-        mayúsculas/minúsculas, espacios o texto adicional) → "PENSIONADO".
-        En cualquier otro caso (incluye vacío, None o NaN)  → "ACTIVO".
+    IMPORTANTE: el texto original de la celda NUNCA se reemplaza ni se
+    transforma (solo se le aplica strip()). La categoría es puramente una
+    etiqueta interna para decidir el estilo visual (verde/violeta/gris);
+    no debe mostrarse en lugar del valor real.
 
-    Args:
-        valor: Valor crudo de vAfiliado (str, None, NaN, etc.).
-
-    Returns:
-        "ACTIVO" o "PENSIONADO".
-    """
-    if valor is None:
-        return "ACTIVO"
-    if isinstance(valor, float) and pd.isna(valor):
-        return "ACTIVO"
-
-    texto = str(valor).strip().casefold()
-    if "pensionado" in texto:
-        return "PENSIONADO"
-    return "ACTIVO"
-
-
-def getTipoAfiliado(fila: pd.Series) -> str:
-    """
-    Determina el tipo de afiliado del cliente a partir de la columna 'vAfiliado'.
-
-    Distingue dos casos:
-      - La columna existe pero el valor está vacío  → se aplica la regla normal (ACTIVO).
-      - La columna no existe en absoluto en el dataset → TEXTO_AFILIADO_SIN_DATO,
-        para no asumir silenciosamente que todo el mundo es ACTIVO.
+    Reglas:
+      - Columna 'vAfiliado' ausente, o valor None/NaN/vacío/solo espacios
+        → valor "SIN DATO", categoría "sin_dato".
+      - Valor (normalizado con casefold) que contenga el término "pensionado"
+        o "jyp" como palabra completa → categoría "pensionado" (estilo violeta).
+      - Cualquier otro contenido no vacío → categoría "activo" (estilo verde).
 
     Args:
         fila: pd.Series con los datos del cliente.
 
     Returns:
-        "ACTIVO", "PENSIONADO" o TEXTO_AFILIADO_SIN_DATO.
+        {
+          "valor":     str  (texto original de la celda, o "SIN DATO"),
+          "categoria": str  ("activo" | "pensionado" | "sin_dato"),
+        }
     """
     if "vAfiliado" not in fila.index:
-        return TEXTO_AFILIADO_SIN_DATO
+        return {"valor": TEXTO_AFILIADO_SIN_DATO, "categoria": "sin_dato"}
 
-    valor = obtenerValorColumna(fila, "vAfiliado")
-    return clasificarAfiliado(valor)
+    valorCrudo = obtenerValorColumna(fila, "vAfiliado")
+    if valorCrudo is None:
+        return {"valor": TEXTO_AFILIADO_SIN_DATO, "categoria": "sin_dato"}
+    if isinstance(valorCrudo, float) and pd.isna(valorCrudo):
+        return {"valor": TEXTO_AFILIADO_SIN_DATO, "categoria": "sin_dato"}
+
+    valorTexto = str(valorCrudo).strip()
+    if valorTexto == "":
+        return {"valor": TEXTO_AFILIADO_SIN_DATO, "categoria": "sin_dato"}
+
+    if _PATRON_CATEGORIA_PENSIONADO.search(valorTexto.casefold()):
+        categoria = "pensionado"
+    else:
+        categoria = "activo"
+
+    return {"valor": valorTexto, "categoria": categoria}
