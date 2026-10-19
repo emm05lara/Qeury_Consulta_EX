@@ -1105,6 +1105,7 @@ def renderizarResultado(fila: pd.Series):
 
         # ── Tarjeta: Información del Crédito ──
         def contenidoCredito():
+            renderizarFila("Institución", formatearTexto(obtenerValorColumna(fila, "Tipo")))
             renderizarFila(
                 "Monto Solicitado",
                 formatearMoneda(obtenerValorColumna(fila, "nAmount")),

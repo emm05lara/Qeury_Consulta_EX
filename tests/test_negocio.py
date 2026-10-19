@@ -136,5 +136,32 @@ class TestColumnaTelefono(unittest.TestCase):
         self.assertNotIn("Telefono", COLUMNAS_REQUERIDAS)
 
 
+class TestColumnaTipoInstitucion(unittest.TestCase):
+    """'Institución' se obtiene por el encabezado 'Tipo', sin depender de su posición."""
+
+    def _institucion(self, fila):
+        from utils.formato import formatearTexto, obtenerValorColumna
+        return formatearTexto(obtenerValorColumna(fila, "Tipo"))
+
+    def test_valor_por_encabezado_sin_importar_posicion(self):
+        df1 = pd.DataFrame([{"vReference": "1", "Tipo": "INFONAVIT", "nAmount": 5}])
+        df2 = pd.DataFrame([{"Tipo": "INFONAVIT", "nAmount": 5, "vReference": "1"}])
+        self.assertEqual(self._institucion(df1.iloc[0]), "INFONAVIT")
+        self.assertEqual(self._institucion(df2.iloc[0]), "INFONAVIT")
+
+    def test_vacio_nulo_o_inexistente_muestra_sin_dato(self):
+        from utils.formato import TEXTO_SIN_DATO
+        for fila in (
+            pd.Series({"Tipo": ""}),
+            pd.Series({"Tipo": None}),
+            pd.Series({"Tipo": float("nan")}),
+            pd.Series({"vReference": "1"}),
+        ):
+            self.assertEqual(self._institucion(fila), TEXTO_SIN_DATO)
+
+    def test_tipo_no_es_columna_requerida(self):
+        self.assertNotIn("Tipo", COLUMNAS_REQUERIDAS)
+
+
 if __name__ == "__main__":
     unittest.main()
