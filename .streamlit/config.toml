@@ -22,7 +22,13 @@ developmentMode = false
 
 [server]
 headless = true
-enableCORS = false
+# CORS queda en su valor por defecto (activo). Con enableCORS=false Streamlit
+# lo anulaba igualmente por ser incompatible con la protección XSRF.
+enableXsrfProtection = true
+# Producción: sin hilo de vigilancia de archivos. En desarrollo local esto
+# desactiva el re-ejecutar al guardar; usar `--server.fileWatcherType auto`
+# para recuperarlo.
+fileWatcherType = "none"
 port = 8501
 
 [browser]

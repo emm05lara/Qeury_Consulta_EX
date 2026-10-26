@@ -33,7 +33,8 @@ import pandas as pd
 
 from utils.carga import (
     cargarArchivo,
-    cargarDesdeRepo,
+    cargarBaseRepo,
+    recargarBaseRepo,
     rutaArchivoRepo,
     obtenerNombreArchivoRepo,
     validarColumnas,
@@ -48,6 +49,7 @@ from utils.formato import (
     TEXTO_SIN_DATO,
 )
 from utils.calculos import calcularPlazo
+from utils.memoria import registrarMemoria
 from utils.negocio import (
     getPagoInfo,
     getMontoPagadoTotal,
@@ -60,6 +62,8 @@ from utils.negocio import (
 # ─────────────────────────────────────────────
 #  CONFIGURACIÓN DE PÁGINA
 # ─────────────────────────────────────────────
+registrarMemoria("inicio_app", unaVez=True)
+
 st.set_page_config(
     page_title="Dashboard de Cobranza | Consulta de Cliente",
     page_icon="🏦",
@@ -818,6 +822,10 @@ if "archivoNombre" not in st.session_state:
 # Fuente: "repo" | "manual" | None
 if "fuenteArchivo" not in st.session_state:
     st.session_state.fuenteArchivo = None
+# Encabezados originales del archivo de la CARGA MANUAL (la base del repo los
+# trae en BaseRepo.columnasArchivo). `dataframe` solo guarda cargas manuales.
+if "columnasArchivo" not in st.session_state:
+    st.session_state.columnasArchivo = None
 
 
 def limpiarBusqueda():
@@ -834,30 +842,61 @@ def limpiarBusqueda():
 
 
 # ─────────────────────────────────────────────
-#  CARGA AUTOMÁTICA DESDE EL REPOSITORIO
-#  Se ejecuta en cada rerun, pero solo carga el DF si no hay uno en sesión.
-#  Si hay un DF manual en sesión, no se sobreescribe.
+#  DATOS ACTIVOS
+#  La base del repositorio se carga UNA vez por proceso (caché compartida en
+#  utils.carga) y se usa directamente; NO se copia a session_state. En
+#  session_state.dataframe solo vive la carga manual de cada usuario.
+#  El DataFrame del repo es COMPARTIDO y de solo lectura: no modificarlo en sitio.
 # ─────────────────────────────────────────────
-def intentarCargaRepo():
+def obtenerDatosActivos():
     """
-    Intenta cargar automáticamente el archivo desde data/ si no hay
-    un DataFrame ya en sesión. Actualiza st.session_state.
+    Retorna (df, encabezadosOriginales) de la fuente activa, o (None, None).
+    Prioridad: carga manual de la sesión > base compartida del repositorio.
     """
-    # Solo actuar si no hay un df ya cargado (no sobreescribir carga manual activa)
-    if st.session_state.dataframe is None:
-        nombreRepo = obtenerNombreArchivoRepo()
-        if nombreRepo is not None:
-            df = cargarDesdeRepo()
-            if df is not None:
-                esValido, columnasFaltantes = validarColumnas(df)
-                if esValido:
-                    st.session_state.dataframe = df
-                    st.session_state.archivoNombre = nombreRepo
-                    st.session_state.fuenteArchivo = "repo"
-                # Si no es válido, se dejará dataframe en None y se mostrará error en sidebar
+    if st.session_state.dataframe is not None:
+        return st.session_state.dataframe, st.session_state.columnasArchivo
+
+    base = cargarBaseRepo()
+    if base is None:
+        return None, None
+    st.session_state.archivoNombre = base.nombre
+    st.session_state.fuenteArchivo = "repo"
+    return base.df, base.columnasArchivo
 
 
-intentarCargaRepo()
+def recargarDatosRepo():
+    """
+    Callback del botón "Recargar datos del repo". Se ejecuta antes del rerun,
+    cuando el render anterior ya terminó, así la versión vieja de la base
+    puede liberarse antes de leer la nueva.
+    """
+    recargarBaseRepo()
+    descartarCargaManual()
+    limpiarBusqueda()
+
+
+def descartarCargaManual():
+    st.session_state.dataframe = None
+    st.session_state.columnasArchivo = None
+    st.session_state.archivoNombre = None
+    st.session_state.fuenteArchivo = None
+
+
+def obtenerDfActivo() -> pd.DataFrame:
+    """
+    DataFrame de la fuente activa (se llama en el punto de uso). Intencionalmente
+    NO se enlaza a una variable global: los callbacks de widgets que Streamlit
+    conserva por sesión referencian los globals del último rerun, y un global con
+    el DataFrame del repo mantendría viva una versión vieja tras una recarga.
+    """
+    return obtenerDatosActivos()[0]
+
+
+# Solo valores pequeños a nivel de módulo (nunca el DataFrame compartido).
+_dfInicial, columnasActivas = obtenerDatosActivos()
+hayDatos = _dfInicial is not None
+totalRegistros = len(_dfInicial) if hayDatos else 0
+del _dfInicial
 
 
 # ─────────────────────────────────────────────
@@ -1521,8 +1560,7 @@ with st.sidebar:
     )
 
     # ── Mostrar estado del archivo actualmente cargado ──
-    if st.session_state.dataframe is not None:
-        dfActual = st.session_state.dataframe
+    if hayDatos:
         fuenteActual = st.session_state.fuenteArchivo or "repo"
         nombreActual = st.session_state.archivoNombre or "Archivo de datos"
 
@@ -1541,7 +1579,7 @@ with st.sidebar:
         st.markdown(
             f"""
             <div style="font-size:0.78rem;color:#8b949e;margin-top:6px;margin-bottom:8px">
-                {len(dfActual):,} registros · {len(dfActual.columns)} columnas
+                {totalRegistros:,} registros · {len(columnasActivas)} columnas
             </div>
             """,
             unsafe_allow_html=True,
@@ -1549,18 +1587,15 @@ with st.sidebar:
 
         # Botón para forzar recarga del archivo del repo (útil tras deploy)
         if fuenteActual == "repo":
-            if st.button("🔄 Recargar datos del repo", use_container_width=True):
-                st.session_state.dataframe = None
-                st.session_state.archivoNombre = None
-                st.session_state.fuenteArchivo = None
-                limpiarBusqueda()
-                st.rerun()
+            st.button(
+                "🔄 Recargar datos del repo",
+                use_container_width=True,
+                on_click=recargarDatosRepo,
+            )
         else:
             # Si es carga manual, botón para descartarla y volver al repo
             if st.button("↩️ Usar archivo del repo", use_container_width=True):
-                st.session_state.dataframe = None
-                st.session_state.archivoNombre = None
-                st.session_state.fuenteArchivo = None
+                descartarCargaManual()
                 limpiarBusqueda()
                 st.rerun()
 
@@ -1610,21 +1645,22 @@ with st.sidebar:
         )
 
         if esNuevoArchivo:
-            df = cargarArchivo(archivoSubido)
+            df, encabezadosSubido = cargarArchivo(archivoSubido)
 
             if df is not None:
                 esValido, columnasFaltantes = validarColumnas(df)
 
                 if esValido:
                     st.session_state.dataframe = df
+                    st.session_state.columnasArchivo = encabezadosSubido
+                    registrarMemoria("despues_carga_manual", minIntervaloSeg=30)
                     st.session_state.archivoNombre = archivoSubido.name
                     st.session_state.fuenteArchivo = "manual"
                     limpiarBusqueda()
                     st.rerun()
                 else:
-                    st.session_state.dataframe = None
-                    st.session_state.archivoNombre = None
-                    st.session_state.fuenteArchivo = None
+                    descartarCargaManual()
+                    hayDatos, columnasActivas = False, None
                     st.markdown(
                         f"""
                         <div style="background:#2d0e0e;border:1px solid #f85149;border-radius:8px;
@@ -1639,9 +1675,9 @@ with st.sidebar:
     st.markdown("<hr>", unsafe_allow_html=True)
 
     # ── Diagnóstico: columnas detectadas ──
-    if st.session_state.dataframe is not None:
+    if hayDatos:
         with st.expander("🔍 Columnas detectadas", expanded=False):
-            for col in st.session_state.dataframe.columns:
+            for col in columnasActivas:
                 st.markdown(
                     f'<span style="font-size:0.78rem;color:#8b949e">• {col}</span>',
                     unsafe_allow_html=True,
@@ -1674,7 +1710,7 @@ st.markdown(
 )
 
 # ── Estado: sin archivo cargado ──
-if st.session_state.dataframe is None:
+if not hayDatos:
     # Determinar si el archivo del repo no existe
     existeArchivoRepo = rutaArchivoRepo() is not None
 
@@ -1713,8 +1749,6 @@ if st.session_state.dataframe is None:
 
     st.stop()
 
-df = st.session_state.dataframe
-
 # ── Campo de búsqueda por VREFERENCE ──
 st.markdown(
     """
@@ -1746,7 +1780,7 @@ st.markdown("</div>", unsafe_allow_html=True)
 # ── Lógica de búsqueda ──
 if valorBusqueda and valorBusqueda.strip():
     st.session_state.busquedaActual = valorBusqueda.strip()
-    resultados = buscarCliente(df, valorBusqueda.strip())
+    resultados = buscarCliente(obtenerDfActivo(), valorBusqueda.strip())
 
     if resultados.empty:
         st.markdown(
@@ -1776,7 +1810,8 @@ if valorBusqueda and valorBusqueda.strip():
         renderizarResultado(filaCliente)
 
         # ── Sección: Otros VReference del mismo cliente ──
-        renderizarOtrosVReference(filaCliente, df)
+        renderizarOtrosVReference(filaCliente, obtenerDfActivo())
+        registrarMemoria("despues_consulta", minIntervaloSeg=60)
 
 else:
     # Estado inicial sin búsqueda

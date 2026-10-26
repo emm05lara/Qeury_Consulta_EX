@@ -8,9 +8,14 @@
 # Para actualizar los datos, simplemente reemplaza el archivo en data/ y
 # haz push. Al redeploy en Render, la app usará el nuevo archivo automáticamente.
 
+import gc
 import os
+from typing import NamedTuple
+
 import pandas as pd
 import streamlit as st
+
+from utils.memoria import registrarMemoria
 
 # ─────────────────────────────────────────────────────────────────
 #  RUTA DEL ARCHIVO PRECARGADO
@@ -56,6 +61,41 @@ COLUMNAS_REQUERIDAS = [
     "nTAmount",
 ]
 
+# Columnas opcionales: la app las lee si existen, pero funciona sin ellas
+# (los valores ausentes se muestran como TEXTO_SIN_DATO).
+COLUMNAS_OPCIONALES = [
+    "Telefono",
+    "Tipo",            # mostrado como "Institución"
+    "nPaid",
+    "nDueBalance_y",
+    "iCredId",
+    "vEstatCred_x",
+    "vEstatCred_y",
+    "vDateMovement",
+    "vAfiliado",
+]
+
+# ÚNICA definición de las columnas que se cargan en memoria. El archivo
+# completo tiene ~89 columnas; solo estas se leen (usecols). Si el código
+# empieza a usar otra columna, debe agregarse aquí (lo verifica tests/test_carga.py).
+COLUMNAS_USADAS = COLUMNAS_REQUERIDAS + [
+    c for c in COLUMNAS_OPCIONALES if c not in COLUMNAS_REQUERIDAS
+]
+_COLUMNAS_USADAS_SET = frozenset(COLUMNAS_USADAS)
+
+
+class BaseRepo(NamedTuple):
+    """
+    Base del repositorio compartida por todas las sesiones.
+
+    CONTRATO DE SOLO LECTURA: `df` es el MISMO objeto para todas las sesiones.
+    Nadie debe modificarlo en sitio (asignar columnas, inplace=True, etc.);
+    quien necesite alterar datos debe trabajar sobre una copia del subconjunto.
+    """
+    df: pd.DataFrame
+    nombre: str
+    columnasArchivo: tuple   # encabezados originales (todas las columnas del archivo)
+
 
 # ─────────────────────────────────────────────────────────────────
 #  CARGA DESDE EL REPOSITORIO (flujo principal)
@@ -76,44 +116,110 @@ def rutaArchivoRepo() -> str | None:
     return None
 
 
-def cargarDesdeRepo() -> pd.DataFrame | None:
-    """
-    Carga el archivo de datos desde la ruta del repositorio (data/).
-    Soporta .xlsx, .xls y .csv.
-    Retorna el DataFrame o None si hay error / archivo no encontrado.
+def _esColumnaUsada(nombre) -> bool:
+    return str(nombre).strip() in _COLUMNAS_USADAS_SET
 
-    Returns:
-        pd.DataFrame o None.
+
+def _leerCsvSelectivo(origen) -> tuple[pd.DataFrame, list[str]]:
+    """
+    Lee solo las columnas de COLUMNAS_USADAS de un CSV (ruta o archivo subido).
+    Devuelve (df, encabezados originales del archivo, ya sin espacios).
+    Intenta UTF-8 y, si falla, latin-1 (igual que antes).
+    """
+    kwEncoding = {}
+    try:
+        df = pd.read_csv(origen, dtype=str, usecols=_esColumnaUsada)
+    except UnicodeDecodeError:
+        kwEncoding = {"encoding": "latin-1"}
+        if hasattr(origen, "seek"):
+            origen.seek(0)
+        df = pd.read_csv(origen, dtype=str, usecols=_esColumnaUsada, **kwEncoding)
+
+    # Encabezados completos: se leen 0 filas, no se cargan datos.
+    if hasattr(origen, "seek"):
+        origen.seek(0)
+    encabezados = pd.read_csv(origen, dtype=str, nrows=0, **kwEncoding).columns
+    df.columns = df.columns.str.strip()
+    return df, [str(c).strip() for c in encabezados]
+
+
+def _leerExcelSelectivo(origen) -> tuple[pd.DataFrame, list[str]]:
+    """
+    Lee la hoja configurada y conserva solo las columnas de COLUMNAS_USADAS.
+    (Excel no permite leer por columnas sin parsear la hoja; la reducción se
+    hace de inmediato y el DataFrame completo se libera.)
+    """
+    df = pd.read_excel(origen, sheet_name=HOJA_EXCEL_DEFECTO, dtype=str)
+    df.columns = df.columns.str.strip()
+    encabezados = list(df.columns)
+    df = df[[c for c in df.columns if c in _COLUMNAS_USADAS_SET]].copy()
+    return df, encabezados
+
+
+def leerDatos(origen, nombreArchivo: str) -> tuple[pd.DataFrame, list[str]] | None:
+    """
+    Lee un archivo de datos (ruta o archivo subido) cargando solo las columnas
+    usadas. Retorna (df, encabezados originales) o None si el formato no es compatible.
+    """
+    nombre = nombreArchivo.lower()
+    if nombre.endswith(".csv"):
+        return _leerCsvSelectivo(origen)
+    if nombre.endswith((".xlsx", ".xls")):
+        return _leerExcelSelectivo(origen)
+    return None
+
+
+def _firmaArchivo(ruta: str) -> tuple[int, int]:
+    """(mtime_ns, tamaño): si el archivo cambia, la caché compartida se renueva."""
+    info = os.stat(ruta)
+    return info.st_mtime_ns, info.st_size
+
+
+@st.cache_resource(max_entries=1, show_spinner=False)
+def _cargarBaseCacheada(ruta: str, firma: tuple) -> BaseRepo | None:
+    """
+    Carga la base del repo UNA vez por proceso (y por versión del archivo) y
+    la comparte entre todas las sesiones. `firma` forma parte de la clave de
+    caché. Si las columnas requeridas faltan retorna None (barato de cachear).
+    Los errores de lectura se propagan: Streamlit no los cachea y se reintentan.
+    """
+    registrarMemoria("antes_carga_base")
+    resultado = leerDatos(ruta, os.path.basename(ruta))
+    if resultado is None:
+        raise ValueError("Formato de archivo no compatible")
+    df, encabezados = resultado
+    esValido, _ = validarColumnas(df)
+    base = BaseRepo(df, os.path.basename(ruta), tuple(encabezados)) if esValido else None
+    registrarMemoria("despues_carga_base")
+    return base
+
+
+def cargarBaseRepo() -> BaseRepo | None:
+    """
+    Retorna la base compartida del repositorio, o None si no existe, no es
+    válida (faltan columnas requeridas) o no se pudo leer (se muestra el error).
     """
     ruta = rutaArchivoRepo()
     if ruta is None:
         return None
-
     try:
-        nombreArchivo = os.path.basename(ruta).lower()
-
-        if nombreArchivo.endswith(".csv"):
-            # Intentar primero UTF-8, luego latin-1 como fallback
-            try:
-                df = pd.read_csv(ruta, dtype=str)
-            except UnicodeDecodeError:
-                df = pd.read_csv(ruta, dtype=str, encoding="latin-1")
-
-        elif nombreArchivo.endswith((".xlsx", ".xls")):
-            # Cargar hoja configurada (por defecto la primera)
-            df = pd.read_excel(ruta, sheet_name=HOJA_EXCEL_DEFECTO, dtype=str)
-
-        else:
-            return None
-
-        # Limpiar espacios en nombres de columnas
-        df.columns = df.columns.str.strip()
-        return df
-
+        return _cargarBaseCacheada(ruta, _firmaArchivo(ruta))
     except Exception as e:
         # El error se mostrará en la UI desde app.py
         st.error(f"❌ Error al leer el archivo del repositorio: {e}")
         return None
+
+
+def recargarBaseRepo() -> None:
+    """
+    Invalida la base compartida (para todas las sesiones). La siguiente llamada
+    a cargarBaseRepo() la vuelve a leer. Se libera ANTES de la nueva lectura para
+    no tener dos versiones a la vez; si otra sesión está en pleno render, conserva
+    su referencia hasta que termine ese rerun.
+    """
+    _cargarBaseCacheada.clear()
+    gc.collect()
+    registrarMemoria("despues_invalidar_cache")
 
 
 def obtenerNombreArchivoRepo() -> str | None:
@@ -131,43 +237,28 @@ def obtenerNombreArchivoRepo() -> str | None:
 #  CARGA DESDE UPLOADER (modo de respaldo / manual)
 # ─────────────────────────────────────────────────────────────────
 
-def cargarArchivo(archivoSubido) -> pd.DataFrame | None:
+def cargarArchivo(archivoSubido) -> tuple[pd.DataFrame, list[str]] | tuple[None, None]:
     """
-    Carga un archivo CSV o Excel subido manualmente por el usuario y retorna un DataFrame.
-    Este es el modo secundario/respaldo; el flujo principal es cargarDesdeRepo().
-    Retorna None si hay un error en la carga.
+    Carga un archivo CSV o Excel subido manualmente por el usuario.
+    Este es el modo secundario/respaldo; el flujo principal es cargarBaseRepo().
+    Solo se conservan las columnas de COLUMNAS_USADAS.
 
     Args:
         archivoSubido: Objeto de archivo de Streamlit (st.file_uploader).
 
     Returns:
-        pd.DataFrame o None si ocurre un error.
+        (DataFrame, encabezados originales del archivo) o (None, None) si hay error.
     """
     try:
-        nombreArchivo = archivoSubido.name.lower()
-
-        if nombreArchivo.endswith(".csv"):
-            try:
-                df = pd.read_csv(archivoSubido, dtype=str)
-            except UnicodeDecodeError:
-                archivoSubido.seek(0)
-                df = pd.read_csv(archivoSubido, dtype=str, encoding="latin-1")
-
-        elif nombreArchivo.endswith((".xlsx", ".xls")):
-            # Para archivos subidos manualmente, cargamos la primera hoja
-            df = pd.read_excel(archivoSubido, sheet_name=HOJA_EXCEL_DEFECTO, dtype=str)
-
-        else:
+        resultado = leerDatos(archivoSubido, archivoSubido.name)
+        if resultado is None:
             st.error("❌ Formato no compatible. Por favor sube un archivo .csv o .xlsx")
-            return None
-
-        # Limpiar espacios en nombres de columnas y en valores de texto
-        df.columns = df.columns.str.strip()
-        return df
+            return None, None
+        return resultado
 
     except Exception as e:
         st.error(f"❌ Error al cargar el archivo: {e}")
-        return None
+        return None, None
 
 
 # ─────────────────────────────────────────────────────────────────
